@@ -1,0 +1,12 @@
+{
+ "grupo": "ADAG1",
+ "config": {
+  "rol": 0,
+  "estrategia": 5,
+  "formato": 0,
+  "estilo": 2,
+  "cierre": 3,
+  "temperatura": 0.0
+ },
+ "semana": 2
+}

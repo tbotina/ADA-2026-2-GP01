@@ -1,94 +1,149 @@
-# Proyecto Oráculo
+# Proyecto Oráculo — Grupo ADAG1
 
-Curso de Análisis y Diseño de Algoritmos. El trabajo es encontrar una buena configuración de prompt consultando un oráculo. Busquen y validen cuantas veces quieran: el caché guarda lo ya generado y las trazas de fallos vienen con cada resultado.
+Análisis y Diseño de Algoritmos · 2026-B · Universidad de Caldas
 
-| Notebook | Colab |
+| | |
 |---|---|
-| Proyecto | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/DanielMelo404/Proyecto-Oraculo-AyD/blob/main/proyecto_oraculo.ipynb) |
+| **Subproyecto** | 1 — Proyecto Oráculo: configuración de prompt con un oráculo |
+| **Grupo** | ADAG1 |
+| **Integrante** | Tania Botina |
+| **Versión** | Primera entrega, solución base (semana 2), rama `main` |
+| **Repositorio** | https://github.com/tbotina/ADA-2026-2-GP01 (fork de [JuManoel/ADA-2026-2-GP01](https://github.com/JuManoel/ADA-2026-2-GP01)) |
 
-## Cómo se juega
+El problema es elegir, entre 32 768 combinaciones de instrucciones (5 ranuras con 8 opciones cada una) y 3 temperaturas, la configuración de prompt que hace que un modelo de lenguaje cumpla más restricciones de formato. Cada configuración se mide consultando un oráculo, y cada consulta cuesta unos 3 minutos de GPU. El enunciado, las reglas del juego y la API del oráculo están en [README_curso.md](README_curso.md).
 
-1. Abran el notebook del curso en Colab.
-2. Corran las celdas 1–3. En la 1, **reinicien el entorno** cuando lo pida.
-3. Escriban su heurística **solo en la celda 4**.
-4. Exporten `entrega.json` en la celda 5.
+## Resultado de esta entrega
 
+| Ranura | `rol` | `estrategia` | `formato` | `estilo` | `cierre` | `temperatura` |
+|---|---|---|---|---|---|---|
+| **Índice** | 0 | 5 | 0 | 2 | 3 | 0.0 |
+
+| Lote | Precisión |
+|---|---|
+| Búsqueda (100 instancias) | **17.0 %** (17/100) |
+| Validación con `oraculo.validar` (87 instancias) | **17.2 %** (15/87) |
+
+Es la **mejor configuración observada** en 90 evaluaciones (0.27 % del espacio), no un óptimo garantizado: la búsqueda es heurística y la poda, empírica. Como referencia, una configuración al azar da menos del 5 %, y la inicial de esta búsqueda daba 8 %.
+
+![Precisión durante la búsqueda](figuras/curva_busqueda.png)
+
+Puntos grises: precisión de cada configuración evaluada, en orden. Línea azul: mejor resultado hasta esa evaluación.
+
+La heurística corresponde al punto 4 del notebook del curso, pero está en su propio notebook: [`notebooks/busqueda.ipynb`](notebooks/busqueda.ipynb). `proyecto_oraculo.ipynb` queda como lo entregó el curso, con su búsqueda aleatoria de ejemplo.
+
+**Método**, en dos fases (detalles en el notebook de búsqueda y en el [manual técnico](MANUAL_TECNICO.md)):
+
+1. **Ascenso por coordenadas** con dos pasadas. Entre las pasadas se descartan las opciones que, según las trazas de fallos, dañan la respuesta (3 o más aciertos por debajo de la mejor de su ranura).
+2. **Búsqueda exhaustiva** sobre el subespacio que sobrevive a la poda: 48 configuraciones.
+
+Después se prueba la temperatura sobre la mejor configuración y se valida una sola vez.
+
+```mermaid
+flowchart TD
+    A["Configuración inicial aleatoria · 8 %"] --> B["<b>Fase 1, pasada 1</b> · NB §4<br/>en cada ranura, con las otras 4 fijas,<br/>probar las 8 opciones y quedarse con la mejor<br/>36 evaluaciones"]
+    B --> C["<b>Poda entre pasadas</b><br/>descartar opciones a más de 2 aciertos de la mejor<br/>24 de 40 descartadas, justificadas con las trazas"]
+    C --> D["<b>Fase 1, pasada 2</b> · NB §4<br/>volver a probar solo las opciones vivas<br/>11 evaluaciones · rol 1 → 3 · 14 %"]
+    D --> E{{"¿Ninguna ranura cambió o ya van 2 pasadas?"}}
+    E -- "no" --> D
+    E -- "sí" --> F["<b>Poda final</b> · NB §5–6<br/>tolerancia + mínimo 2 por ranura + tope de 64<br/>subespacio de 48 configuraciones"]
+    F --> G["<b>Fase 2: exhaustivo</b> · NB §7<br/>todas las combinaciones del subespacio<br/>41 evaluaciones nuevas"]
+    G --> H["<b>Mejor a temperatura 0.0</b> · NB §8<br/>{0, 5, 0, 2, 3} · 17 %"]
+    H --> I{{"¿0.3 o 0.7 superan a 0.0 por más de 2 aciertos?"}}
+    I -- "no (se queda 0.0)" --> L["<b>oraculo.validar</b>, una sola vez · NB §10<br/>17.2 % en 87 instancias"]
+    I -- "sí" --> J["Se adopta esa temperatura"] --> L
+    L --> M["<b>entrega.json</b> · NB §11"]
+    Z[("medir() + caché en Drive<br/>cada configuración se evalúa una vez")]
+    Z -.- B
+    Z -.- D
+    Z -.- G
 ```
-r = oraculo.evaluar(config, instancias, semilla)
-r_val = oraculo.validar(config, n)
 
-r.precision        # 0.55
-r.trazas           # [{id, violo, salida}, ...]
-```
+«NB §k» es la sección de `notebooks/busqueda.ipynb` donde se ejecuta cada paso.
 
-Hay **32 768** configuraciones (`espacio()`, temperatura 0.0): un índice de 0 a 7 por ranura entre `rol`, `estrategia`, `formato`, `estilo` y `cierre`, más la temperatura. Cada ranura es un consejo de prompting; algunos combinan mal con las restricciones que mide el verificador, y las trazas dicen cuál falló. El lote de búsqueda del notebook son las 100 instancias de `busqueda`. Medir con cuántas instancias buscar es parte del problema.
+## Estado: solución base
 
-**Es un problema de optimización de verdad.** Cada ranura ataca una parte distinta de la respuesta —el prefijo, el largo, la estructura, los caracteres, el sufijo— y los efectos se componen. Una configuración al azar se queda **debajo del 5%**; el techo está cerca del **24%**. Sortear no alcanza: hay **una sola opción limpia entre ocho** en cada ranura, así que acertar cuatro de cinco ranuras al azar pasa 1 vez cada 900. Para pasar de ahí hay que usar la estructura — leer las trazas, ver qué familia rompe cada opción, y buscar con eso (backtracking con poda, ascenso por coordenadas, haz, recocido). Reparar una ranura a la vez sube de a escalones; ninguna opción buena está en el mismo índice en todas las ranuras.
+Esto es la **solución base** de la primera entrega, no una solución terminada. Para las entregas siguientes quedan:
 
-Las particiones vienen **curadas**. `datos_visibles.json` marca como `descartada` a la instancia que pide más texto del que cabe en `max_new_tokens`, a la que ninguna opción puede romper, y a las de una o de cuatro-cinco restricciones. Las primeras son imposibles de acertar; las segundas son puntos que nadie puede perder, y con un tercio del lote así el puntaje casi no dependía de la configuración elegida. Búsqueda y validación quedan con la misma dificultad (2.5 restricciones por instancia), para que validar mida generalización y no un lote más duro.
+- el algoritmo exacto (backtracking con poda) y su función de complejidad $T(n)$, semanas 5–6;
+- una heurística con cota de calidad, semanas 7–8;
+- la experimentación y las variantes, semanas 9–11;
+- el simulador sintético del modelo del enunciado, para medir sin GPU.
 
-## Modelos
+## Estructura
 
-`cargar_modelo` acepta un alias o un id de Hugging Face:
-
-| Alias | Checkpoint | Notas |
+| Archivo | Qué es | Autor |
 |---|---|---|
-| `qwen17b` | `Qwen/Qwen3-1.7B` | el de por defecto; el más rápido |
-| `qwen17b4bit` | `unsloth/Qwen3-1.7B-unsloth-bnb-4bit` | el mismo 1.7B en 4-bit |
-| `ministral3b` | `mistralai/Ministral-3-3B-Instruct-2512-BF16` | 3.8B en fp16 (~7.7 GB), T4 |
-| `llama3b` | `unsloth/Llama-3.2-3B-Instruct` | 3.2B en fp16 (~6.4 GB), T4 |
-| `qwen8b` | `unsloth/Qwen3-8B-unsloth-bnb-4bit` | 4-bit, T4 |
-| `mistral7b` | `unsloth/mistral-7b-instruct-v0.3-bnb-4bit` | 4-bit, T4 |
+| `entrega.json` | Configuración entregada: grupo, semana y config | Grupo |
+| `notebooks/busqueda.ipynb` | Búsqueda completa: método, registro de evaluaciones, análisis de trazas y validación. Guardado con sus salidas | Grupo |
+| `notebooks/registro_evaluaciones.csv` | Las 90 configuraciones evaluadas, con su precisión en búsqueda | Grupo |
+| `notebooks/evaluacion.ipynb` | Carga `entrega.json` y la evalúa sin editar nada. Guardado con sus salidas | Grupo |
+| `pruebas/probar_entrega.py` | Pruebas locales: validez de `entrega.json` y coherencia entre archivos | Grupo |
+| `pruebas/probar_busqueda.py` | Pruebas del algoritmo: ejecuta la búsqueda contra oráculos falsos con resultado conocido | Grupo |
+| `figuras/curva_busqueda.png`, `figuras/generar_curva.py` | Curva de la búsqueda y el script que la dibuja desde el registro | Grupo |
+| `MANUAL_TECNICO.md` | Manual técnico de la solución base | Grupo |
+| `oraculo.py`, `ayudas.py`, `datos_visibles.json` | Oráculo (caja negra), utilidades y datos del curso | Curso |
+| `proyecto_oraculo.ipynb`, `README_curso.md` | Notebook y README originales del curso | Curso |
+
+Los notebooks no usan las copias locales de `oraculo.py`, `ayudas.py` y `datos_visibles.json`: las descargan en Colab desde el [repositorio del curso](https://github.com/DanielMelo404/Proyecto-Oraculo-AyD).
+
+## Requisitos
+
+**Notebooks:** Google Colab con **GPU T4**. Se usaron Python 3.13.16, torch 2.11.0+cu130 y transformers 5.22.1, con el modelo `qwen17b` (`Qwen/Qwen3-1.7B`). La celda 1 de cada notebook instala el resto:
+
+- bitsandbytes ≥ 0.46.1, accelerate, nltk, spacy con `en_core_web_sm`, emoji, langdetect e immutabledict;
+- `open-instruct` (verificador de restricciones), clonado de GitHub;
+- pandas, que ya viene en Colab.
+
+**Pruebas locales:** Python 3.8 o superior, sin GPU. `probar_entrega.py` usa solo la biblioteca estándar; `probar_busqueda.py` necesita además pandas. Para volver a dibujar la curva (`python figuras/generar_curva.py`) hace falta además matplotlib.
+
+## Cómo ejecutar
+
+### 1. Ejemplo pequeño, sin GPU (menos de 1 s)
 
 ```
-modelo = cargar_modelo("qwen8b")
+python pruebas/probar_entrega.py
 ```
 
-Los 7-8B son lentos en T4: tengan paciencia con las primeras corridas.
+Ejecuta 12 pruebas, y todas deben terminar en `ok`:
 
-## Búsqueda y validación
+- `entrega.json` es válido: campos, tipos, índices de 0 a 7 y temperatura permitida;
+- el validador rechaza configuraciones que violan las restricciones del problema: índice 8, temperatura 0.5, ranura faltante;
+- la configuración de `entrega.json` es la misma que eligen el notebook de búsqueda y el registro, y la que documenta el notebook de evaluación.
 
-`datos_visibles.json` tiene 450 instancias, de las que se usan **100 de búsqueda y 87 de validación** (el resto va marcado `descartada`, ver `dividir`). Son el mismo split que usan [GEPA](https://arxiv.org/abs/2507.19457) y NPO [1] sobre IF-RLVR Train, de donde salen estos datos. No son las filas exactas de los papers —no publican los índices—, sí la fuente, los tamaños y la disyunción.
-
-```
-datos = cargar_datos()
-busqueda, validacion = dividir(datos)
-oraculo = Oraculo(modelo, busqueda, validacion)
-```
-
-Las dos particiones salen del mismo pool y comparten distribución: validar mide si la config aguanta **instancias** nuevas, no restricciones de un tipo nuevo. Ese otro salto se mide al calificar, con familias que no están en este archivo.
-
-Busquen solo sobre `busqueda`. `oraculo.validar` mide la config elegida con una muestra fija de `n` instancias (las 300 tardan) e imprime qué restricciones se cayeron más.
+Para verificar el algoritmo:
 
 ```
-r_val = oraculo.validar(mejor[1], n=30)
+pip install pandas
+python pruebas/probar_busqueda.py
 ```
 
-### Ojo con el todo-o-nada
+Ejecuta 18 pruebas en unos segundos. Corren el código real del notebook contra oráculos falsos y comparan con el resultado esperado:
 
-Una instancia trae **hasta 5 restricciones** (2.3 en promedio) y se puntúa todo-o-nada: basta que falle una para que valga 0. En las instancias más duras el modelo acierta poco, así que **con pocas instancias muchas configuraciones van a marcar `0.0` y parecer iguales**. Si su búsqueda no logra distinguir nada, suban el número de instancias antes de cambiar de heurística — decidir cuántas medir es parte del problema.
+- **reproducción de la corrida real:** con los aciertos del registro, debe recorrer las mismas 90 configuraciones y elegir `{0,5,0,2,3}`;
+- **sin interacción entre ranuras:** debe hallar el óptimo global (100 de 100, calculado por fuerza bruta);
+- **con interacción:** la fase 1 queda en un óptimo local (29) y la fase 2 llega al óptimo (45);
+- **límite de la poda:** muestra un caso en que se pierde el óptimo (35 frente a 45), porque el método no lo garantiza;
+- **reglas de la búsqueda:** presupuesto, temperatura, validación única y determinismo.
 
-## Archivos
+### 2. Evaluar la configuración entregada (~10 min)
 
-| Archivo | Qué es |
-|---|---|
-| `proyecto_oraculo.ipynb` | El notebook del curso |
-| `oraculo.py` | La caja negra. Se consulta, no se abre |
-| `ayudas.py` | Cargar modelo, datos, dividir, ver un prompt, curva, entrega |
-| `datos_visibles.json` | 450 instancias: 100 de búsqueda, 87 de validación, 263 descartadas |
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/tbotina/ADA-2026-2-GP01/blob/main/notebooks/evaluacion.ipynb)
 
-## Entrega
+1. Entorno de ejecución ▸ Cambiar tipo de entorno ▸ **T4 GPU**.
+2. Ejecutar la celda 1 y luego Entorno de ejecución ▸ **Reiniciar sesión**.
+3. Entorno de ejecución ▸ **Ejecutar todo**.
 
-Un `entrega.json` con grupo, configuración y semana:
+El notebook baja `entrega.json` de este repositorio, lo valida y evalúa la configuración sobre las 87 instancias de validación, que hacen de conjunto de prueba del grupo: no se usaron para buscar. La evaluación sobre los datos privados la hace la profesora aparte, con `entrega.json`. **Resultado esperado:** **17.2 % (15/87)**. Con temperatura 0.0 la generación es determinista, y el notebook compara el resultado con este valor en su última sección.
 
-```json
-{
- "grupo": "G07",
- "config": {"rol": 2, "estrategia": 7, "formato": 4, "estilo": 1, "cierre": 6, "temperatura": 0.0},
- "semana": 3
-}
-```
+### 3. Repetir la búsqueda (≈ 4.7 h de GPU sin caché)
 
-## Referencias
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/tbotina/ADA-2026-2-GP01/blob/main/notebooks/busqueda.ipynb)
 
-[1] Yuan Chang y Xiaoqi Chen, *Naive Prompt Optimization: Rethinking the Need for Complex Prompt Search*, arXiv:2608.27266, 2026. https://arxiv.org/abs/2608.27266
+Los pasos son los mismos que en el punto anterior; el notebook pide acceso a Google Drive para guardar la caché del oráculo. Si Colab se desconecta, se vuelve a ejecutar todo: el recorrido es determinista y lo ya evaluado sale de la caché en 0 s. El cupo gratuito de GPU de Colab puede no alcanzar para una corrida completa en una sola sesión.
+
+## Reproducibilidad
+
+- **Semillas fijas:** `SEMILLA = 2026` para la configuración inicial y semilla 1 para el oráculo. Las evaluaciones van con temperatura 0.0, es decir, generación determinista.
+- **Parámetros del oráculo fijos:** `lote=32` y `presupuesto=64_000_000`, porque lotes de distinto tamaño pueden cambiar levemente las salidas en fp16.
+- **Resultados esperados:** en búsqueda, 17 aciertos sobre 100. En validación, 15 sobre 87; este valor se reprodujo en una sesión de Colab distinta, sin caché.
+- La validación usa la misma distribución de instancias que la búsqueda. El test privado de la profesora trae familias de restricciones nuevas, así que su resultado puede diferir.
