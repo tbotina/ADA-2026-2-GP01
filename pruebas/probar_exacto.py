@@ -167,6 +167,18 @@ class CuentaDeNodos(unittest.TestCase):
         # El enunciado la condiciona a k_j >= 2: aquí hay 1 hoja y 4 nodos.
         self.assertEqual(nodos_peor_caso((1, 1, 1)), 4)
 
+    def test_el_peor_caso_se_alcanza(self):
+        """Cada instancia exige dos opciones de la última categoría: nadie la resuelve, pero
+        cuenta en la cota de todo nodo interno. La cota nunca baja de n y no se poda nada."""
+        for k in [(2, 2, 2), (4, 3, 3, 2, 2), (3, 1, 2, 5)]:
+            ultima = tuple(bits(o) for o in range(k[-1]))
+            opciones = tuple((0,) * kj for kj in k[:-1]) + (ultima,)
+            requisitos = (bits(0, 1),) * 10 if k[-1] >= 2 else ()
+            if not requisitos:
+                continue
+            r = backtracking(Instancia(opciones, requisitos, k[-1]))
+            self.assertEqual((r.aciertos, r.nodos, r.podas), (0, nodos_peor_caso(k), 0), k)
+
     def test_la_poda_sirve_en_la_instancia_base(self):
         for semilla in range(10):
             r = backtracking(instancia_base(semilla))
